@@ -23,7 +23,19 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const message = req.body?.message;
+    let body = req.body;
+
+if (typeof body === "string") {
+  try {
+    body = JSON.parse(body);
+  } catch {
+    return res.status(400).json({
+      error: "Invalid JSON"
+    });
+  }
+}
+
+const message = body?.message;
 
     // Validate input
     if (!message || typeof message !== "string") {
