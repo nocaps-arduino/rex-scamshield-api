@@ -5,7 +5,6 @@ const ai = new GoogleGenAI({
 });
 
 module.exports = async function handler(req, res) {
-  // Allow requests from MIT App Inventor / Hoppscotch
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -21,13 +20,12 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Read request body
     let body = req.body;
 
     if (typeof body === "string") {
       try {
         body = JSON.parse(body);
-      } catch {
+      } catch (error) {
         return res.status(400).json({
           error: "Invalid JSON",
         });
@@ -51,15 +49,13 @@ module.exports = async function handler(req, res) {
     const prompt = `
 You are the semantic scam detection system for rex ScamShield.
 
-Analyze the following message and determine whether it appears
-to be a scam, phishing attempt, fraud attempt, or social
-engineering message.
+Analyze this message for signs of scams, fraud, phishing,
+social engineering, impersonation, or financial manipulation.
 
-Analyze the MEANING and CONTEXT, not just individual keywords.
+Analyze the meaning and context, not just keywords.
 
 Look for:
-
-- Banking and KYC phishing
+- Banking or KYC phishing
 - OTP or password theft
 - UPI/payment manipulation
 - Fake prizes
@@ -74,35 +70,23 @@ Look for:
 - Threats such as account suspension
 - Suspicious links or instructions
 
-IMPORTANT:
+Important:
+A legitimate OTP notification that tells the recipient NOT to share
+their OTP should not automatically be classified as a scam.
 
-A legitimate message containing words such as OTP, bank,
-payment, or password is NOT automatically a scam.
-
-For example:
-
-"Your OTP is 123456. Never share this OTP with anyone."
-
-should normally be LOW risk unless there are other suspicious
-elements.
-
-Return ONLY valid JSON.
-
-Use exactly this structure:
+Return ONLY valid JSON in exactly this format:
 
 {
   "risk": "LOW",
   "category": "OTHER"
 }
 
-risk MUST be exactly one of:
-
+risk must be exactly one of:
 LOW
 MEDIUM
 HIGH
 
-category MUST be exactly one of:
-
+category must be exactly one of:
 BANKING
 UPI
 INVESTMENT
@@ -112,18 +96,15 @@ PRIZE
 IMPERSONATION
 OTHER
 
-Do not include markdown.
+Do not return markdown.
+Do not return an explanation.
+Do not return anything except the JSON object.
 
-Do not include explanations.
-
-Do not include any text before or after the JSON.
-
-MESSAGE TO ANALYZE:
+MESSAGE:
 
 ${JSON.stringify(message)}
 `;
 
-    // Gemini 3.8 Flash - Interactions API
     const interaction = await ai.interactions.create({
       model: "gemini-3.8-flash",
       input: prompt,
@@ -131,11 +112,10 @@ ${JSON.stringify(message)}
 
     const raw = interaction.output_text.trim();
 
-    // Remove markdown fences just in case
     const cleaned = raw
       .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/, "")
-      .replace(/\s*```$/, "");
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "");
 
     const result = JSON.parse(cleaned);
 
