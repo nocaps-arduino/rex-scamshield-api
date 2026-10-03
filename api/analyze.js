@@ -8,9 +8,7 @@ module.exports = async function handler(req, res) {
   }
 
   if (req.method !== "POST") {
-    return res.status(405).json({
-      error: "POST required"
-    });
+    return res.status(405).json({ error: "POST required" });
   }
 
   try {
@@ -19,67 +17,41 @@ module.exports = async function handler(req, res) {
     if (typeof body === "string") {
       try {
         body = JSON.parse(body);
-      } catch (error) {
-        return res.status(400).json({
-          error: "Invalid JSON"
-        });
+      } catch {
+        return res.status(400).json({ error: "Invalid JSON" });
       }
     }
 
     const message = body?.message;
 
     if (!message || typeof message !== "string") {
-      return res.status(400).json({
-        error: "Message is required"
-      });
+      return res.status(400).json({ error: "Message is required" });
     }
 
-    if (message.length > 5000) {
-      return res.status(400).json({
-        error: "Message is too long"
+    if (!process.env.GROQ_API_KEY) {
+      return res.status(500).json({
+        error: "GROQ_API_KEY is missing in Vercel"
       });
     }
 
     const systemPrompt = `
-You are the semantic scam detection engine for rex ScamShield.
+You are rex ScamShield, a scam detection AI.
 
-Analyze a message for scam, fraud, phishing, impersonation,
-social engineering, or financial manipulation.
+Analyze the user's message using meaning and context.
 
-Analyze meaning and context, not just keywords.
-
-Consider:
-- Banking/KYC phishing
-- OTP or password theft
-- UPI/payment manipulation
-- Fake prizes
-- Advance-fee scams
-- Investment scams
-- Fake job offers
-- Delivery/parcel/customs scams
-- Impersonation
-- Requests for money
-- Requests for sensitive information
-- Artificial urgency
-- Threats such as account suspension
-- Suspicious links or instructions
-
-A legitimate OTP notification that tells the recipient NOT to share
-their OTP should not automatically be classified as a scam.
-
-Return ONLY JSON with this structure:
+Return ONLY JSON in this exact format:
 
 {
   "risk": "LOW",
   "category": "OTHER"
 }
 
-risk must be exactly:
+risk must be one of:
 LOW
 MEDIUM
 HIGH
 
-category must be exactly:
+category must be one of:
 BANKING
 UPI
 INVESTMENT
@@ -110,7 +82,7 @@ OTHER
               content: message
             }
           ],
-          temperature: 0.1,
+          temperature: 0,
           response_format: {
             type: "json_schema",
             json_schema: {
@@ -149,18 +121,19 @@ OTHER
     const data = await groqResponse.json();
 
     if (!groqResponse.ok) {
-      console.error("Groq API error:", data);
-
       return res.status(500).json({
-        error: "AI provider error"
+        error: "Groq rejected request",
+        status: groqResponse.status,
+        details: data
       });
     }
 
-    const content =
-      data?.choices?.[0]?.message?.content;
+    const content = data?.choices?.[0]?.message?.content;
 
     if (!content) {
-      throw new Error("No AI response received");
+      return res.status(500).json({
+        error: "No AI response"
+      });
     }
 
     const result = JSON.parse(content);
@@ -171,10 +144,11 @@ OTHER
     });
 
   } catch (error) {
-    console.error("Scam analysis error:", error);
+    console.error(error);
 
     return res.status(500).json({
-      error: "Analysis failed"
+      error: "Server error",
+      details: error.message
     });
   }
 };
