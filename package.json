@@ -2,7 +2,4 @@
   "name": "rex-scamshield-api",
   "version": "1.0.0",
   "private": true,
-  "dependencies": {
-    "@google/genai": "^2.0.0"
-  }
 }
