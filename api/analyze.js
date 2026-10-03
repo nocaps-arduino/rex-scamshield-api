@@ -1,9 +1,3 @@
-const { GoogleGenAI } = require("@google/genai");
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
-
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -15,7 +9,7 @@ module.exports = async function handler(req, res) {
 
   if (req.method !== "POST") {
     return res.status(405).json({
-      error: "POST required",
+      error: "POST required"
     });
   }
 
@@ -27,7 +21,7 @@ module.exports = async function handler(req, res) {
         body = JSON.parse(body);
       } catch (error) {
         return res.status(400).json({
-          error: "Invalid JSON",
+          error: "Invalid JSON"
         });
       }
     }
@@ -36,33 +30,33 @@ module.exports = async function handler(req, res) {
 
     if (!message || typeof message !== "string") {
       return res.status(400).json({
-        error: "Message is required",
+        error: "Message is required"
       });
     }
 
     if (message.length > 5000) {
       return res.status(400).json({
-        error: "Message is too long",
+        error: "Message is too long"
       });
     }
 
-    const prompt = `
-You are the semantic scam detection system for rex ScamShield.
+    const systemPrompt = `
+You are the semantic scam detection engine for rex ScamShield.
 
-Analyze this message for signs of scams, fraud, phishing,
-social engineering, impersonation, or financial manipulation.
+Analyze a message for scam, fraud, phishing, impersonation,
+social engineering, or financial manipulation.
 
-Analyze the meaning and context, not just keywords.
+Analyze meaning and context, not just keywords.
 
-Look for:
-- Banking or KYC phishing
+Consider:
+- Banking/KYC phishing
 - OTP or password theft
 - UPI/payment manipulation
 - Fake prizes
 - Advance-fee scams
-- Fraudulent investment schemes
+- Investment scams
 - Fake job offers
-- Parcel/customs/delivery scams
+- Delivery/parcel/customs scams
 - Impersonation
 - Requests for money
 - Requests for sensitive information
@@ -70,23 +64,22 @@ Look for:
 - Threats such as account suspension
 - Suspicious links or instructions
 
-Important:
 A legitimate OTP notification that tells the recipient NOT to share
 their OTP should not automatically be classified as a scam.
 
-Return ONLY valid JSON in exactly this format:
+Return ONLY JSON with this structure:
 
 {
   "risk": "LOW",
   "category": "OTHER"
 }
 
-risk must be exactly one of:
+risk must be exactly:
 LOW
 MEDIUM
 HIGH
 
-category must be exactly one of:
+category must be exactly:
 BANKING
 UPI
 INVESTMENT
@@ -95,64 +88,93 @@ DELIVERY
 PRIZE
 IMPERSONATION
 OTHER
-
-Do not return markdown.
-Do not return an explanation.
-Do not return anything except the JSON object.
-
-MESSAGE:
-
-${JSON.stringify(message)}
 `;
 
-    const interaction = await ai.interactions.create({
-      model: "gemini-3.8-flash",
-      input: prompt,
-    });
+    const groqResponse = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-oss-120b",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt
+            },
+            {
+              role: "user",
+              content: message
+            }
+          ],
+          temperature: 0.1,
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "scam_analysis",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  risk: {
+                    type: "string",
+                    enum: ["LOW", "MEDIUM", "HIGH"]
+                  },
+                  category: {
+                    type: "string",
+                    enum: [
+                      "BANKING",
+                      "UPI",
+                      "INVESTMENT",
+                      "JOB",
+                      "DELIVERY",
+                      "PRIZE",
+                      "IMPERSONATION",
+                      "OTHER"
+                    ]
+                  }
+                },
+                required: ["risk", "category"],
+                additionalProperties: false
+              }
+            }
+          }
+        })
+      }
+    );
 
-    const raw = interaction.output_text.trim();
+    const data = await groqResponse.json();
 
-    const cleaned = raw
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/\s*```$/i, "");
+    if (!groqResponse.ok) {
+      console.error("Groq API error:", data);
 
-    const result = JSON.parse(cleaned);
-
-    const validRisks = [
-      "LOW",
-      "MEDIUM",
-      "HIGH",
-    ];
-
-    const validCategories = [
-      "BANKING",
-      "UPI",
-      "INVESTMENT",
-      "JOB",
-      "DELIVERY",
-      "PRIZE",
-      "IMPERSONATION",
-      "OTHER",
-    ];
-
-    if (
-      !validRisks.includes(result.risk) ||
-      !validCategories.includes(result.category)
-    ) {
-      throw new Error("Invalid AI response");
+      return res.status(500).json({
+        error: "AI provider error"
+      });
     }
+
+    const content =
+      data?.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new Error("No AI response received");
+    }
+
+    const result = JSON.parse(content);
 
     return res.status(200).json({
       risk: result.risk,
-      category: result.category,
+      category: result.category
     });
 
   } catch (error) {
     console.error("Scam analysis error:", error);
 
     return res.status(500).json({
-      error: "Analysis failed",
+      error: "Analysis failed"
     });
   }
 };
