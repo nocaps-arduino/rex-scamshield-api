@@ -5,17 +5,15 @@ const ai = new GoogleGenAI({
 });
 
 module.exports = async function handler(req, res) {
-  // CORS
+  // Allow requests from MIT App Inventor / Hoppscotch
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // Handle preflight request
   if (req.method === "OPTIONS") {
     return res.status(204).end();
   }
 
-  // Only allow POST requests
   if (req.method !== "POST") {
     return res.status(405).json({
       error: "POST required",
@@ -23,21 +21,21 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    // Read request body
     let body = req.body;
 
-if (typeof body === "string") {
-  try {
-    body = JSON.parse(body);
-  } catch {
-    return res.status(400).json({
-      error: "Invalid JSON"
-    });
-  }
-}
+    if (typeof body === "string") {
+      try {
+        body = JSON.parse(body);
+      } catch {
+        return res.status(400).json({
+          error: "Invalid JSON",
+        });
+      }
+    }
 
-const message = body?.message;
+    const message = body?.message;
 
-    // Validate input
     if (!message || typeof message !== "string") {
       return res.status(400).json({
         error: "Message is required",
@@ -51,32 +49,42 @@ const message = body?.message;
     }
 
     const prompt = `
-You are the semantic scam-detection component of rex ScamShield.
+You are the semantic scam detection system for rex ScamShield.
 
-Analyze the following message for signs of fraud, phishing,
-social engineering, impersonation, or financial manipulation.
+Analyze the following message and determine whether it appears
+to be a scam, phishing attempt, fraud attempt, or social
+engineering message.
 
-Analyze the MEANING and CONTEXT of the message, not just keywords.
+Analyze the MEANING and CONTEXT, not just individual keywords.
 
 Look for:
-- banking or KYC phishing
-- OTP or credential theft
+
+- Banking and KYC phishing
+- OTP or password theft
 - UPI/payment manipulation
-- fake prizes
-- advance-fee scams
-- fraudulent investment promises
-- fake job offers
-- parcel/customs/delivery scams
-- impersonation
-- requests for money
-- requests for sensitive information
-- artificial urgency
-- threats such as account suspension
-- suspicious links or instructions
+- Fake prizes
+- Advance-fee scams
+- Fraudulent investment schemes
+- Fake job offers
+- Parcel/customs/delivery scams
+- Impersonation
+- Requests for money
+- Requests for sensitive information
+- Artificial urgency
+- Threats such as account suspension
+- Suspicious links or instructions
 
 IMPORTANT:
-A legitimate OTP notification telling the recipient NOT to share
-their OTP should not automatically be classified as a scam.
+
+A legitimate message containing words such as OTP, bank,
+payment, or password is NOT automatically a scam.
+
+For example:
+
+"Your OTP is 123456. Never share this OTP with anyone."
+
+should normally be LOW risk unless there are other suspicious
+elements.
 
 Return ONLY valid JSON.
 
@@ -87,12 +95,14 @@ Use exactly this structure:
   "category": "OTHER"
 }
 
-"risk" MUST be one of:
+risk MUST be exactly one of:
+
 LOW
 MEDIUM
 HIGH
 
-"category" MUST be one of:
+category MUST be exactly one of:
+
 BANKING
 UPI
 INVESTMENT
@@ -103,22 +113,25 @@ IMPERSONATION
 OTHER
 
 Do not include markdown.
+
 Do not include explanations.
-Do not include text before or after the JSON.
+
+Do not include any text before or after the JSON.
 
 MESSAGE TO ANALYZE:
 
 ${JSON.stringify(message)}
 `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
+    // Gemini 3.8 Flash - Interactions API
+    const interaction = await ai.interactions.create({
+      model: "gemini-3.8-flash",
+      input: prompt,
     });
 
-    const raw = response.text.trim();
+    const raw = interaction.output_text.trim();
 
-    // Remove markdown fences if the model unexpectedly adds them
+    // Remove markdown fences just in case
     const cleaned = raw
       .replace(/^```json\s*/i, "")
       .replace(/^```\s*/, "")
@@ -143,18 +156,18 @@ ${JSON.stringify(message)}
       "OTHER",
     ];
 
-    // Validate AI response
     if (
       !validRisks.includes(result.risk) ||
       !validCategories.includes(result.category)
     ) {
-      throw new Error("Invalid model response");
+      throw new Error("Invalid AI response");
     }
 
     return res.status(200).json({
       risk: result.risk,
       category: result.category,
     });
+
   } catch (error) {
     console.error("Scam analysis error:", error);
 
