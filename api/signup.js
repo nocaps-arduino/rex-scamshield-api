@@ -1,3 +1,21 @@
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+
+    req.on("data", (chunk) => {
+      data += chunk.toString();
+    });
+
+    req.on("end", () => {
+      resolve(data);
+    });
+
+    req.on("error", (error) => {
+      reject(error);
+    });
+  });
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -14,31 +32,42 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    let body = req.body;
+    let body;
 
-    // Handle body if Vercel provides it as a Buffer
-    if (Buffer.isBuffer(body)) {
-      body = body.toString("utf8");
-    }
+    // Try Vercel's parsed body first.
+    if (req.body !== undefined && req.body !== null) {
+      body = req.body;
+    } else {
+      // Otherwise read the raw request stream.
+      const rawBody = await readRequestBody(req);
 
-    // Handle body if Vercel provides it as text
-    if (typeof body === "string") {
       try {
-        body = JSON.parse(body);
-      } catch {
+        body = JSON.parse(rawBody);
+      } catch (error) {
         return res.status(400).json({
-          error: "Invalid JSON body"
+          error: "Invalid JSON body",
+          rawBody: rawBody
         });
       }
     }
 
-    const email = body && body.email;
-    const password = body && body.password;
+    // If the parsed body is still a string, parse it.
+    if (typeof body === "string") {
+      try {
+        body = JSON.parse(body);
+      } catch (error) {
+        return res.status(400).json({
+          error: "Invalid JSON"
+        });
+      }
+    }
+
+    const email = body?.email;
+    const password = body?.password;
 
     if (!email || !password) {
       return res.status(400).json({
         error: "Email and password are required",
-        receivedType: typeof body,
         receivedBody: body
       });
     }
