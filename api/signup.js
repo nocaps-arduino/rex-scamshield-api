@@ -16,26 +16,40 @@ module.exports = async function handler(req, res) {
   try {
     let body = req.body;
 
-    if (typeof body === "string") {
-      body = JSON.parse(body);
+    // Handle body if Vercel provides it as a Buffer
+    if (Buffer.isBuffer(body)) {
+      body = body.toString("utf8");
     }
 
-    const email = body?.email;
-    const password = body?.password;
+    // Handle body if Vercel provides it as text
+    if (typeof body === "string") {
+      try {
+        body = JSON.parse(body);
+      } catch {
+        return res.status(400).json({
+          error: "Invalid JSON body"
+        });
+      }
+    }
+
+    const email = body && body.email;
+    const password = body && body.password;
 
     if (!email || !password) {
       return res.status(400).json({
-        error: "Email and password are required"
+        error: "Email and password are required",
+        receivedType: typeof body,
+        receivedBody: body
       });
     }
 
     if (!process.env.FIREBASE_API_KEY) {
       return res.status(500).json({
-        error: "Firebase API key missing"
+        error: "FIREBASE_API_KEY is missing in Vercel"
       });
     }
 
-    const response = await fetch(
+    const firebaseResponse = await fetch(
       "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=" +
         process.env.FIREBASE_API_KEY,
       {
@@ -51,12 +65,12 @@ module.exports = async function handler(req, res) {
       }
     );
 
-    const data = await response.json();
+    const data = await firebaseResponse.json();
 
-    if (!response.ok) {
-      return res.status(400).json({
+    if (!firebaseResponse.ok) {
+      return res.status(firebaseResponse.status).json({
         success: false,
-        error: data?.error?.message || "Signup failed"
+        error: data?.error?.message || "Firebase signup failed"
       });
     }
 
@@ -73,7 +87,8 @@ module.exports = async function handler(req, res) {
 
     return res.status(500).json({
       success: false,
-      error: "Server error"
+      error: "Server error",
+      details: error.message
     });
   }
 };
